@@ -3,11 +3,14 @@ import react from '@vitejs/plugin-react';
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  base: '/ai-town',
+  // Usar '/' para producción en Easy Panel, o '/ai-town' si está en subdirectorio
+  base: process.env.NODE_ENV === 'production' ? '/' : '/ai-town',
   plugins: [
     react(),
   ],
   server: {
-    allowedHosts: ['ai-town-your-app-name.fly.dev', 'localhost', '127.0.0.1'],
+    host: '0.0.0.0',
+    port: 5173,
+    allowedHosts: true, // Permitir todos los hosts
   },
 });
