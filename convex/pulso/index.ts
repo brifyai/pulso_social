@@ -387,3 +387,13 @@ export const getRegionCenters = query({
     return REGION_CENTERS;
   },
 });
+
+// ==================== NEWS (NOTICIAS - SUPABASE INTEGRATION) ====================
+
+// Re-exportar funciones de noticias desde news.ts
+export {
+  fetchAndSaveNews,
+  searchRelevantNews,
+  getNewsContextForAgent,
+  generateTextEmbedding
+} from './news';
