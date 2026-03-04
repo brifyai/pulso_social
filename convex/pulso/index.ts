@@ -392,7 +392,7 @@ export const getRegionCenters = query({
 
 // Re-exportar funciones de noticias desde news.ts
 export {
-  fetchAndSaveNews,
+  getChileanNews,
   searchRelevantNews,
   getNewsContextForAgent,
   generateTextEmbedding

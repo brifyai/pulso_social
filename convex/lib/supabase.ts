@@ -1,31 +1,50 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 // Cliente de Supabase para Cold Storage y Vector Database
-// Se usa para almacenar noticias históricas y memorias de agentes con embeddings
+// Configurado para Self-Hosted (puede requerir ajustes de SSL en local)
 
 let supabaseClient: SupabaseClient | null = null;
 
+// Función para obtener el cliente (lazy initialization)
 function getSupabaseClient(): SupabaseClient {
   if (supabaseClient) {
     return supabaseClient;
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL || '';
-  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY || '';
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !supabaseKey) {
-    throw new Error('SUPABASE_URL y SUPABASE_KEY deben estar configurados para usar funciones de Supabase');
+    throw new Error('Faltan credenciales de Supabase (URL o SERVICE_ROLE_KEY) en Convex ENV.');
   }
 
-  supabaseClient = createClient(supabaseUrl, supabaseKey);
+  // Configuración para Self-Hosted
+  // A veces SSL falla en local, cuidado con certificados
+  supabaseClient = createClient(supabaseUrl, supabaseKey, {
+    auth: {
+      persistSession: false, // No necesitamos sesión de usuario en el servidor
+      autoRefreshToken: false,
+    },
+  });
+  
   return supabaseClient;
 }
+
+// Exportar el cliente como un getter para uso directo
+export const supabase = new Proxy({} as SupabaseClient, {
+  get(_target, prop) {
+    const client = getSupabaseClient();
+    return client[prop as keyof SupabaseClient];
+  },
+});
 
 // Tipos para las tablas de Supabase
 export interface NewsArchive {
   id?: bigint;
   title: string;
   content: string;
+  source?: string;
+  url?: string;
   published_at: string;
   tags: string[];
   embedding?: number[];
@@ -71,6 +90,8 @@ export async function generateEmbedding(text: string): Promise<number[]> {
 export async function saveNewsToSupabase(news: {
   title: string;
   content: string;
+  source?: string;
+  url?: string;
   published_at: string;
   tags: string[];
 }): Promise<void> {
@@ -83,6 +104,8 @@ export async function saveNewsToSupabase(news: {
       .insert({
         title: news.title,
         content: news.content,
+        source: news.source,
+        url: news.url,
         published_at: news.published_at,
         tags: news.tags,
         embedding,

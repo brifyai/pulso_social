@@ -1,11 +1,7 @@
+"use node";
+import { action } from '../_generated/server';
 import { v } from 'convex/values';
-import { action, internalAction } from '../_generated/server';
-import { api, internal } from '../_generated/api';
-import { 
-  saveNewsToSupabase, 
-  searchSimilarNews,
-  generateEmbedding 
-} from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 // Interfaz para noticias de GNews
 export interface GNewsArticle {
@@ -23,69 +19,101 @@ export interface GNewsArticle {
 }
 
 // Action para obtener noticias de GNews y guardarlas en Supabase
-export const fetchAndSaveNews = action({
-  args: {
-    query: v.optional(v.string()),
-    category: v.optional(v.string()),
-    country: v.optional(v.string()),
-    maxResults: v.optional(v.number()),
+// Optimizado para evitar duplicados y manejar errores de self-hosted
+export const getChileanNews = action({
+  args: { 
+    max: v.optional(v.number()), // Cuántas noticias traer (Default 5)
+    forceRefresh: v.optional(v.boolean()) // Forzar bajada de GNews (costoso)
   },
   handler: async (ctx, args) => {
-    const apiKey = process.env.GNEWS_API_KEY;
-    if (!apiKey) {
-      throw new Error('GNEWS_API_KEY no está configurado');
-    }
+    try {
+      // 1. Obtener noticias frescas de GNews
+      const apiKey = process.env.GNEWS_API_KEY;
+      if (!apiKey) throw new Error("Falta GNEWS_API_KEY");
 
-    const maxResults = args.maxResults || 10;
-    const query = args.query || 'Chile';
-    const category = args.category || 'general';
-    const country = args.country || 'cl';
+      const limit = args.max || 5;
+      const url = `https://gnews.io/api/v4/top-headlines?country=cl&lang=es&max=${limit}&apikey=${apiKey}`;
+      
+      console.log("📡 Bajando noticias de GNews...");
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (!data.articles) throw new Error("Error en respuesta de GNews");
 
-    const url = new URL('https://gnews.io/api/v4/search');
-    url.searchParams.append('q', query);
-    url.searchParams.append('category', category);
-    url.searchParams.append('country', country);
-    url.searchParams.append('max', maxResults.toString());
-    url.searchParams.append('apikey', apiKey);
-    url.searchParams.append('lang', 'es');
+      const articles = data.articles;
+      const processedNews: string[] = [];
 
-    const response = await fetch(url.toString());
-    if (!response.ok) {
-      throw new Error(`Error fetching GNews: ${response.statusText}`);
-    }
+      // 2. Procesar cada noticia (Generar Vector + Guardar en Supabase)
+      // Usamos Promise.all para velocidad
+      await Promise.all(articles.map(async (art: any) => {
+        
+        // A. Verificar si ya existe en Supabase (por URL) para no duplicar
+        const { data: existing } = await supabase
+          .from("news_archive")
+          .select("id")
+          .eq("url", art.url)
+          .single();
 
-    const data = await response.json();
-    const articles: GNewsArticle[] = data.articles || [];
-
-    // Guardar cada noticia en Supabase con su embedding
-    const savedCount = await Promise.allSettled(
-      articles.map(async (article) => {
-        try {
-          await saveNewsToSupabase({
-            title: article.title,
-            content: article.description || article.content || '',
-            published_at: article.publishedAt,
-            tags: article.category || [category],
-          });
-          return true;
-        } catch (error) {
-          console.error('Error guardando artículo:', article.title, error);
-          return false;
+        if (existing) {
+          console.log(`ℹ️ Noticia ya existe: ${art.title}`);
+          processedNews.push(`[EXISTENTE] ${art.title}`);
+          return; // Saltamos
         }
-      })
-    );
 
-    const successCount = savedCount.filter(r => r.status === 'fulfilled' && r.value).length;
+        // B. Generar Embedding (Vector) con OpenAI
+        // Combinamos Título + Descripción para mejor contexto semántico
+        const textToEmbed = `${art.title} ${art.description || ""}`;
+        
+        const openaiApiKey = process.env.OPENAI_API_KEY;
+        if (!openaiApiKey) throw new Error("Falta OPENAI_API_KEY");
 
-    return {
-      total: articles.length,
-      saved: successCount,
-      articles: articles.map(a => ({
-        title: a.title,
-        url: a.url,
-        publishedAt: a.publishedAt,
-      })),
-    };
+        const embeddingResponse = await fetch('https://api.openai.com/v1/embeddings', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${openaiApiKey}`,
+          },
+          body: JSON.stringify({
+            model: 'text-embedding-3-small',
+            input: textToEmbed.substring(0, 8000), // Cortamos por seguridad
+            dimensions: 1536,
+          }),
+        });
+
+        if (!embeddingResponse.ok) {
+          throw new Error(`Error generando embedding: ${embeddingResponse.statusText}`);
+        }
+
+        const embeddingData = await embeddingResponse.json();
+        const embedding = embeddingData.data[0].embedding;
+
+        // C. Insertar en Supabase Self-Hosted
+        const { error } = await supabase.from("news_archive").insert({
+          title: art.title,
+          content: art.description || "",
+          source: art.source.name || "Desconocido",
+          url: art.url,
+          published_at: art.publishedAt || new Date().toISOString(),
+          tags: art.category || [], // Podrías usar GPT para generar tags aquí
+          embedding: embedding, // ¡Guardamos el vector!
+        });
+
+        if (error) {
+          console.error(`❌ Error Supabase al guardar '${art.title}':`, error);
+        } else {
+          console.log(`✅ Noticia guardada y vectorizada: ${art.title}`);
+          processedNews.push(`[NUEVA] ${art.title}`);
+        }
+
+      }));
+
+      // 3. Retornar resumen al Frontend (Contexto manual)
+      return processedNews.join("\n");
+
+    } catch (error) {
+      console.error("Fallo crítico en getChileanNews:", error);
+      throw new Error(`Error al procesar noticias: ${error}`);
+    }
   },
 });
 
@@ -97,14 +125,44 @@ export const searchRelevantNews = action({
   },
   handler: async (ctx, args) => {
     const limit = args.limit || 5;
-    const similarNews = await searchSimilarNews(args.query, limit);
     
-    return similarNews.map(news => ({
-      title: news.title,
-      content: news.content,
-      published_at: news.published_at,
-      tags: news.tags,
-    }));
+    // Generar embedding de la query
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    if (!openaiApiKey) throw new Error("Falta OPENAI_API_KEY");
+
+    const embeddingResponse = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${openaiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'text-embedding-3-small',
+        input: args.query,
+        dimensions: 1536,
+      }),
+    });
+
+    if (!embeddingResponse.ok) {
+      throw new Error(`Error generando embedding: ${embeddingResponse.statusText}`);
+    }
+
+    const embeddingData = await embeddingResponse.json();
+    const queryEmbedding = embeddingData.data[0].embedding;
+    
+    // Buscar en Supabase usando RPC
+    const { data, error } = await supabase.rpc('match_news', {
+      query_embedding: queryEmbedding,
+      match_threshold: 0.7,
+      match_count: limit,
+    });
+
+    if (error) {
+      console.error('Error buscando noticias similares:', error);
+      throw error;
+    }
+
+    return data || [];
   },
 });
 
@@ -126,9 +184,9 @@ export const getNewsContextForAgent = action({
       'Chile',
     ].join(' ');
 
-    const relevantNews = await searchSimilarNews(queryTerms, limit);
+    const relevantNews = await searchRelevantNews(queryTerms, limit);
     
-    return relevantNews.map(news => ({
+    return relevantNews.map((news: any) => ({
       title: news.title,
       content: news.content,
       published_at: news.published_at,
@@ -138,11 +196,32 @@ export const getNewsContextForAgent = action({
 });
 
 // Internal action para generar embedding de texto
-export const generateTextEmbedding = internalAction({
+export const generateTextEmbedding = action({
   args: {
     text: v.string(),
   },
   handler: async (ctx, args) => {
-    return await generateEmbedding(args.text);
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    if (!openaiApiKey) throw new Error("Falta OPENAI_API_KEY");
+
+    const response = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${openaiApiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'text-embedding-3-small',
+        input: args.text,
+        dimensions: 1536,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Error generando embedding: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.data[0].embedding;
   },
 });
