@@ -2,6 +2,22 @@
 import { action } from '../_generated/server';
 import { v } from 'convex/values';
 import { supabase } from '../lib/supabase';
+import OpenAI from 'openai';
+
+// Cliente de OpenAI con inicialización lazy (perezosa)
+// Solo se inicializa cuando se usa, evitando errores si la API key no está configurada
+let openaiClient: OpenAI | null = null;
+
+function getOpenAI(): OpenAI {
+  if (!openaiClient) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error("Falta OPENAI_API_KEY en las variables de entorno");
+    }
+    openaiClient = new OpenAI({ apiKey });
+  }
+  return openaiClient;
+}
 
 // Interfaz para noticias de GNews
 export interface GNewsArticle {
@@ -60,32 +76,18 @@ export const getChileanNews = action({
           return; // Saltamos
         }
 
-        // B. Generar Embedding (Vector) con OpenAI
+        // B. Generar Embedding (Vector) con OpenAI SDK
         // Combinamos Título + Descripción para mejor contexto semántico
         const textToEmbed = `${art.title} ${art.description || ""}`;
         
-        const openaiApiKey = process.env.OPENAI_API_KEY;
-        if (!openaiApiKey) throw new Error("Falta OPENAI_API_KEY");
-
-        const embeddingResponse = await fetch('https://api.openai.com/v1/embeddings', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${openaiApiKey}`,
-          },
-          body: JSON.stringify({
-            model: 'text-embedding-3-small',
-            input: textToEmbed.substring(0, 8000), // Cortamos por seguridad
-            dimensions: 1536,
-          }),
+        const openai = getOpenAI();
+        const embeddingResp = await openai.embeddings.create({
+          model: "text-embedding-3-small",
+          input: textToEmbed.substring(0, 8000),
+          dimensions: 1536,
         });
-
-        if (!embeddingResponse.ok) {
-          throw new Error(`Error generando embedding: ${embeddingResponse.statusText}`);
-        }
-
-        const embeddingData = await embeddingResponse.json();
-        const embedding = embeddingData.data[0].embedding;
+        
+        const embedding = embeddingResp.data[0].embedding;
 
         // C. Insertar en Supabase Self-Hosted
         const { error } = await supabase.from("news_archive").insert({
@@ -126,29 +128,15 @@ export const searchRelevantNews = action({
   handler: async (ctx, args) => {
     const limit = args.limit || 5;
     
-    // Generar embedding de la query
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!openaiApiKey) throw new Error("Falta OPENAI_API_KEY");
-
-    const embeddingResponse = await fetch('https://api.openai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${openaiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'text-embedding-3-small',
-        input: args.query,
-        dimensions: 1536,
-      }),
+    // Generar embedding de la query con OpenAI SDK
+    const openai = getOpenAI();
+    const embeddingResp = await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: args.query,
+      dimensions: 1536,
     });
-
-    if (!embeddingResponse.ok) {
-      throw new Error(`Error generando embedding: ${embeddingResponse.statusText}`);
-    }
-
-    const embeddingData = await embeddingResponse.json();
-    const queryEmbedding = embeddingData.data[0].embedding;
+    
+    const queryEmbedding = embeddingResp.data[0].embedding;
     
     // Buscar en Supabase usando RPC
     const { data, error } = await supabase.rpc('match_news', {
@@ -184,7 +172,29 @@ export const getNewsContextForAgent = action({
       'Chile',
     ].join(' ');
 
-    const relevantNews = await searchRelevantNews(queryTerms, limit);
+    // Generar embedding de la query con OpenAI SDK
+    const openai = getOpenAI();
+    const embeddingResp = await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: queryTerms,
+      dimensions: 1536,
+    });
+    
+    const queryEmbedding = embeddingResp.data[0].embedding;
+    
+    // Buscar en Supabase usando RPC
+    const { data, error } = await supabase.rpc('match_news', {
+      query_embedding: queryEmbedding,
+      match_threshold: 0.7,
+      match_count: limit,
+    });
+
+    if (error) {
+      console.error('Error buscando noticias similares:', error);
+      throw error;
+    }
+    
+    const relevantNews = data || [];
     
     return relevantNews.map((news: any) => ({
       title: news.title,
@@ -201,27 +211,13 @@ export const generateTextEmbedding = action({
     text: v.string(),
   },
   handler: async (ctx, args) => {
-    const openaiApiKey = process.env.OPENAI_API_KEY;
-    if (!openaiApiKey) throw new Error("Falta OPENAI_API_KEY");
-
-    const response = await fetch('https://api.openai.com/v1/embeddings', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${openaiApiKey}`,
-      },
-      body: JSON.stringify({
-        model: 'text-embedding-3-small',
-        input: args.text,
-        dimensions: 1536,
-      }),
+    const openai = getOpenAI();
+    const embeddingResp = await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: args.text,
+      dimensions: 1536,
     });
-
-    if (!response.ok) {
-      throw new Error(`Error generando embedding: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return data.data[0].embedding;
+    
+    return embeddingResp.data[0].embedding;
   },
 });
