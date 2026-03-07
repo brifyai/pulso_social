@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Game from './components/Game.tsx';
+import { AuthGuard, AdminOnly, useAuth } from './components/AuthGuard';
 
 import { ToastContainer } from 'react-toastify';
 import starImg from '../assets/star.svg';
@@ -147,6 +148,26 @@ const modalStyles = {
   },
 };
 
+// Wrapper para contenido solo de administradores
+function AdminOnlyWrapper({ children }: { children: React.ReactNode }) {
+  const { isAdmin } = useAuth();
+  
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-900">
+        <div className="max-w-md mx-auto text-center p-8 bg-gray-800 rounded-lg shadow-xl">
+          <h1 className="text-3xl font-bold text-red-500 mb-4">⛔ Solo Administradores</h1>
+          <p className="text-gray-300">
+            Esta sección está restringida solo para administradores.
+          </p>
+        </div>
+      </div>
+    );
+  }
+  
+  return <>{children}</>;
+}
+
 // App principal con Router
 export default function App() {
   return (
@@ -155,18 +176,30 @@ export default function App() {
         {/* RUTA 1: El Juego original (Página de inicio) */}
         <Route path="/" element={<GamePage />} />
 
-        {/* RUTA 2: Dashboard de Pulso Social */}
-        <Route path="/dashboard" element={<DashboardLayout />}>
+        {/* RUTA 2: Dashboard de Pulso Social (PROTEGIDO - Solo Admin) */}
+        <Route path="/dashboard" element={
+          <AuthGuard>
+            <DashboardLayout />
+          </AuthGuard>
+        }>
           {/* Página principal del dashboard */}
           <Route index element={<DashboardPage />} />
-          {/* Página de encuestas */}
-          <Route path="encuestas" element={<SurveysPage />} />
+          {/* Página de encuestas - Solo admin puede ejecutar encuestas */}
+          <Route path="encuestas" element={
+            <AdminOnlyWrapper>
+              <SurveysPage />
+            </AdminOnlyWrapper>
+          } />
           {/* Página de resultados */}
           <Route path="resultados" element={<ResultsPage />} />
           {/* Página de agentes */}
           <Route path="agentes" element={<AgentsPage />} />
-          {/* Página de configuración */}
-          <Route path="config" element={<ConfigPage />} />
+          {/* Página de configuración - Solo admin */}
+          <Route path="config" element={
+            <AdminOnlyWrapper>
+              <ConfigPage />
+            </AdminOnlyWrapper>
+          } />
         </Route>
 
         {/* Redirigir cualquier ruta desconocida al juego */}

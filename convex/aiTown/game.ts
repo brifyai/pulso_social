@@ -47,7 +47,7 @@ export class Game extends AbstractGame {
   tickDuration = 16;
   stepDuration = 1000;
   maxTicksPerStep = 600;
-  maxInputsPerStep = 32;
+  maxInputsPerStep = 128; // Aumentado de 32 a 128 para acelerar migración de agentes
 
   world: World;
 

@@ -1,18 +1,21 @@
 import { useState } from 'react';
-import { useSurveys, useCreateSurvey, useDeleteSurvey, useUpdateSurveyStatus } from '../api';
-import { PlusCircle, Trash2, Play, Pause, CheckCircle, Send } from 'lucide-react';
+import { useSurveys, useCreateSurvey, useDeleteSurvey, useUpdateSurveyStatus, useGetChileanNews } from '../api';
+import { PlusCircle, Trash2, Play, Pause, CheckCircle, Send, RefreshCw } from 'lucide-react';
 
 export default function SurveysPage() {
   const surveys = useSurveys() || [];
   const createSurvey = useCreateSurvey();
   const deleteSurvey = useDeleteSurvey();
   const updateStatus = useUpdateSurveyStatus();
+  const getChileanNews = useGetChileanNews();
   
   const [showForm, setShowForm] = useState(false);
   const [question, setQuestion] = useState('');
   const [context, setContext] = useState('');
   const [options, setOptions] = useState(['Apruebo', 'Rechazo']);
   const [loading, setLoading] = useState(false);
+  const [syncingNews, setSyncingNews] = useState(false);
+  const [newsResult, setNewsResult] = useState<string | null>(null);
 
   const addOption = () => setOptions([...options, '']);
   const removeOption = (index: number) => setOptions(options.filter((_, i) => i !== index));
@@ -69,6 +72,20 @@ export default function SurveysPage() {
     }
   };
 
+  const handleSyncNews = async () => {
+    setSyncingNews(true);
+    setNewsResult(null);
+    try {
+      const result = await getChileanNews({ max: 5 });
+      setNewsResult(result);
+    } catch (error) {
+      console.error('Error syncing news:', error);
+      setNewsResult('Error al sincronizar noticias. Verifica que GNEWS_API_KEY esté configurada.');
+    } finally {
+      setSyncingNews(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -76,14 +93,49 @@ export default function SurveysPage() {
           <h2 className="text-2xl font-bold text-gray-900">Encuestas</h2>
           <p className="text-gray-500">Gestiona tus estudios de opinión</p>
         </div>
-        <button
-          onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <PlusCircle size={20} />
-          Nueva Encuesta
-        </button>
+        <div className="flex gap-3">
+          <button
+            onClick={handleSyncNews}
+            disabled={syncingNews}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw size={20} className={syncingNews ? 'animate-spin' : ''} />
+            {syncingNews ? 'Sincronizando...' : 'Sincronizar GNews'}
+          </button>
+          <button
+            onClick={() => setShowForm(!showForm)}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <PlusCircle size={20} />
+            Nueva Encuesta
+          </button>
+        </div>
       </div>
+
+      {/* Resultado de sincronización de noticias */}
+      {newsResult && (
+        <div className={`p-4 rounded-lg border ${
+          newsResult.includes('Error')
+            ? 'bg-red-50 border-red-200 text-red-800'
+            : 'bg-green-50 border-green-200 text-green-800'
+        }`}>
+          <div className="flex items-start gap-2">
+            <RefreshCw size={20} className="mt-0.5" />
+            <div className="flex-1">
+              <p className="font-medium mb-1">
+                {newsResult.includes('Error') ? 'Error' : 'Sincronización completada'}
+              </p>
+              <pre className="text-sm whitespace-pre-wrap font-mono">{newsResult}</pre>
+            </div>
+            <button
+              onClick={() => setNewsResult(null)}
+              className="text-gray-500 hover:text-gray-700"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Formulario de nueva encuesta */}
       {showForm && (

@@ -3,6 +3,7 @@
 import { action } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
+import { requireAdminAction } from "./auth";
 
 // Función para obtener el cliente de OpenAI (lazy initialization)
 function getOpenAI() {
@@ -15,9 +16,14 @@ function getOpenAI() {
 }
 
 // LA ACCIÓN PRINCIPAL: Corre la encuesta sobre todos los agentes
+// SOLO ADMINISTRADORES pueden ejecutar esta acción
 export const runSurvey = action({
   args: { surveyId: v.id("surveys") },
   handler: async (ctx, args): Promise<string> => {
+    // VERIFICACIÓN DE SEGURIDAD: Solo administradores pueden ejecutar encuestas
+    const adminEmail = await requireAdminAction(ctx);
+    console.log(`🔐 Admin ${adminEmail} ejecutando encuesta...`);
+
     // A. Obtenemos la encuesta y los agentes usando las queries existentes
     const survey = await ctx.runQuery(api['pulso/index'].getSurvey, { id: args.surveyId });
     const agents = await ctx.runQuery(api['pulso/index'].listPanelAgents);

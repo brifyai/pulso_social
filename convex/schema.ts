@@ -2,6 +2,7 @@ import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
 import { agentTables } from './agent/schema';
 import { aiTownTables } from './aiTown/schema';
+import { scalableTables } from './aiTown/scalableSchema';
 import { conversationId, playerId } from './aiTown/ids';
 import { engineTables } from './engine/schema';
 import { pulsoTables } from './pulso/schema';
@@ -24,6 +25,7 @@ export default defineSchema({
 
   ...agentTables,
   ...aiTownTables,
+  ...scalableTables,
   ...engineTables,
   ...pulsoTables,
 });

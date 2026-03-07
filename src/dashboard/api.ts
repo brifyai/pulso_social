@@ -88,3 +88,17 @@ export function useRegionStats(worldId?: string) {
 export function useRegionCenters() {
   return useQuery(api['pulso/index'].getRegionCenters);
 }
+
+// ==================== GNEWS ====================
+
+export function useGetChileanNews() {
+  return useMutation(api['pulso/index'].getChileanNews);
+}
+
+export function useSearchRelevantNews() {
+  return useMutation(api['pulso/index'].searchRelevantNews);
+}
+
+export function useGetNewsContextForAgent() {
+  return useMutation(api['pulso/index'].getNewsContextForAgent);
+}
