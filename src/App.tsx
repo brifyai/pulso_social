@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import Game from './components/Game.tsx';
-import { AuthGuard, AdminOnly, useAuth } from './components/AuthGuard';
+import { AuthGuard } from './components/AuthGuard';
+import LoginPage from './pages/LoginPage.tsx';
 
 import { ToastContainer } from 'react-toastify';
 import starImg from '../assets/star.svg';
@@ -113,7 +114,7 @@ function GamePage() {
             </Button>
             {/* Botón Dashboard - Usa el mismo componente que los otros botones */}
             <Button
-              href="/ai-town/dashboard"
+              href="/dashboard"
               imgUrl={chartImg}
             >
               Dashboard
@@ -148,62 +149,63 @@ const modalStyles = {
   },
 };
 
-// Wrapper para contenido solo de administradores
-function AdminOnlyWrapper({ children }: { children: React.ReactNode }) {
-  const { isAdmin } = useAuth();
-  
-  if (!isAdmin) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900">
-        <div className="max-w-md mx-auto text-center p-8 bg-gray-800 rounded-lg shadow-xl">
-          <h1 className="text-3xl font-bold text-red-500 mb-4">⛔ Solo Administradores</h1>
-          <p className="text-gray-300">
-            Esta sección está restringida solo para administradores.
-          </p>
-        </div>
-      </div>
-    );
-  }
-  
-  return <>{children}</>;
-}
-
 // App principal con Router
 export default function App() {
   return (
     <Router basename="/ai-town">
       <Routes>
-        {/* RUTA 1: El Juego original (Página de inicio) */}
-        <Route path="/" element={<GamePage />} />
+        {/* RUTA 1: Login de autenticación (Página de inicio) */}
+        <Route path="/login" element={<LoginPage />} />
 
-        {/* RUTA 2: Dashboard de Pulso Social (PROTEGIDO - Solo Admin) */}
+        {/* RUTA 1.5: Redirigir raíz sin autenticación al login */}
+        <Route path="/" element={<Navigate to="/login" replace />} />
+
+        {/* RUTA 2: El Juego original - CON autenticación */}
+        <Route path="/game" element={
+          <AuthGuard>
+            <GamePage />
+          </AuthGuard>
+        } />
+
+        {/* RUTA 3: Dashboard de Pulso Social - CON autenticación */}
         <Route path="/dashboard" element={
           <AuthGuard>
-            <DashboardLayout />
+            <DashboardLayout>
+              <DashboardPage />
+            </DashboardLayout>
           </AuthGuard>
-        }>
-          {/* Página principal del dashboard */}
-          <Route index element={<DashboardPage />} />
-          {/* Página de encuestas - Solo admin puede ejecutar encuestas */}
-          <Route path="encuestas" element={
-            <AdminOnlyWrapper>
+        } />
+        <Route path="/dashboard/encuestas" element={
+          <AuthGuard>
+            <DashboardLayout>
               <SurveysPage />
-            </AdminOnlyWrapper>
-          } />
-          {/* Página de resultados */}
-          <Route path="resultados" element={<ResultsPage />} />
-          {/* Página de agentes */}
-          <Route path="agentes" element={<AgentsPage />} />
-          {/* Página de configuración - Solo admin */}
-          <Route path="config" element={
-            <AdminOnlyWrapper>
+            </DashboardLayout>
+          </AuthGuard>
+        } />
+        <Route path="/dashboard/resultados" element={
+          <AuthGuard>
+            <DashboardLayout>
+              <ResultsPage />
+            </DashboardLayout>
+          </AuthGuard>
+        } />
+        <Route path="/dashboard/agentes" element={
+          <AuthGuard>
+            <DashboardLayout>
+              <AgentsPage />
+            </DashboardLayout>
+          </AuthGuard>
+        } />
+        <Route path="/dashboard/config" element={
+          <AuthGuard>
+            <DashboardLayout>
               <ConfigPage />
-            </AdminOnlyWrapper>
-          } />
-        </Route>
+            </DashboardLayout>
+          </AuthGuard>
+        } />
 
-        {/* Redirigir cualquier ruta desconocida al juego */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        {/* Redirigir cualquier ruta desconocida al login */}
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </Router>
   );
